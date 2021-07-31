@@ -7,11 +7,11 @@ library("ggrepel")
 library("png")
 
 # ---- Load plotting theme
-source("../resources/jolly_theme.R")
+source("resources/jolly_theme.R")
 
 
 # ---- Read the olympic data
-athlete_events <- read_csv("../../../data_sources/2021_olympic/athlete_events.csv",
+  athlete_events <- read_csv("2021_week_31/data/athlete_events.csv",
                  col_types = cols(
                    ID = col_character(),
                    Name = col_character(),
@@ -32,7 +32,7 @@ athlete_events <- read_csv("../../../data_sources/2021_olympic/athlete_events.cs
 )
 
 # read in the NOC regions data
-noc_regions <- read_csv("../../../data_sources/2021_olympic/noc_regions.csv")
+noc_regions <- read_csv("2021_week_31/data/noc_regions.csv")
 
 # enrich the NOC data with the corresponding continent
 noc_regions$continent <- countrycode(sourcevar = noc_regions$region,
@@ -50,62 +50,9 @@ noc_regions <- noc_regions %>%
          )
 
 
-
-
-## ----------------------------------------------------------------------------------------
-noc_medal_count <- athlete_events %>% 
-  filter(!is.na(Medal)) %>% 
-  group_by(NOC) %>% 
-  count(Medal, sort = TRUE) %>% 
-  pivot_wider(names_from = Medal, values_from = n) %>% 
-  mutate(total = Bronze + Silver + Gold, 
-         medal_score = 3 * Gold + 2 * Silver + Bronze) %>% 
-  arrange(desc(total), desc(medal_score))
-
-
-## ----------------------------------------------------------------------------------------
-noc_game_count <- athlete_events %>% 
-  distinct(NOC, Games, .keep_all = FALSE) %>% 
-  count(NOC) %>% 
-  rename(n_games = n)
-
-noc_medal_count %>% 
-  left_join(noc_game_count) %>% 
-  mutate(
-    Gold = Gold / n_games,
-    Silver = Silver / n_games,
-    Bronze = Bronze / n_games,
-    total = total / n_games,
-    medal_score = medal_score / n_games,
-  ) %>% 
-  arrange(desc(total), desc(medal_score)) %>% 
-  paged_table()
-
-
-
-## ---- layout="l-page", fig.cap="Bar chart race of the Top 10 NOCs for the total medal count over 120 years. NOCs: USA (United States of America), URS (Soviet Union), GER (Germany), GBR (Great Britain), FRA (France), ITA (Italy), SWE (Sweden), CAN (Canada), AUS (Australia), RUS (Russia), HUN (Hungary), FIN (Finland), NOR (Norway), BEL (Belgium), GDR (East Germany)"----
-noc_medal_yearly <- athlete_events %>% 
-  filter(!is.na(Medal)) %>% 
-  arrange(NOC, Year) %>% 
-  group_by(NOC, Year) %>% 
-  summarise(year_total = n()) %>% 
-  ungroup() %>% 
-  complete(NOC, Year, fill = list(year_total = 0L)) %>% 
-  arrange(NOC, Year) %>% 
-  group_by(NOC) %>%
-  mutate(cum_total = cumsum(year_total)) %>% 
-  ungroup() %>% 
-  arrange(cum_total) %>% 
-  group_by(Year) %>% 
-  filter(row_number() >= (n() - 10)) %>% 
-  mutate(Rank = row_number())
-
-
-
-
 ## ---- Read the Gapminder data
 library("readxl")
-gapminder <- read_excel("../../../data_sources/2021_olympic/income_per_person_gdppercapita_ppp_inflation_adjusted.xlsx", 
+gapminder <- read_excel("2021_week_31/data/income_per_person_gdppercapita_ppp_inflation_adjusted.xlsx", 
                         sheet = "income_per_person_gdppercapita_")
 
 # add the IOC country codes
@@ -117,7 +64,7 @@ gapminder$Continent <- countrycode(sourcevar = gapminder$country,
                                      origin = "country.name",
                                     destination = "continent")
 # read the population data
-pop <- read_csv("../../../data_sources/2021_olympic/gapminder_population_total.csv",
+pop <- read_csv("2021_week_31/data/gapminder_population_total.csv",
                 col_names = TRUE)
 
 
@@ -176,8 +123,11 @@ gap_med_ath_2016 <- gap_med_ath %>%
 # Hence, Spearman's rank correlation is used:
 cor.test(gap_med_ath_2016$ath_count, gap_med_ath_2016$Medals, method = "spearman")
 
-rio <- readPNG("https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/Rio_2016_logo.svg/800px-Rio_2016_logo.svg.png", T)
+# read the 2016 logo
+rio <- readPNG("2021_week_31/Rio2016.png", T)
 
+
+## Plot 1 ----
 gap_med_ath_2016 %>%
   ggplot(aes(ath_count, Medals, color = Continent, group = Continent)) +
   geom_point(aes(size = GDPpc), alpha = 0.4) +
@@ -218,14 +168,12 @@ gap_med_ath_2016 %>%
     clip = F, align_to = "full"
   )
 
-ggsave("MoreAthletesMoreMedals.png", dpi = 96, height = 10, width = 8)
+ggsave("2021_week_31/MoreAthletesMoreMedals.png", dpi = 96, height = 10, width = 8)
 
 
-## ---- layout="l-page", fig.height=10, fig.width=8, fig.height=10, fig.width=8, fig.cap="Athletes per capita vs GDP per capita: whealthy countries sent more athletes (in regard to their population) in 2016.I refreshed this graph for #TidyTuesday week 31/2021.", fig.alt="Scatterplot showing the connection between GDP per capita, the number of participating athletes and the NOCs medal count for the year 2016. The GDP per capita is mapped to the x-axis, the number of athletes per capita is on the y-axis, the size of the NOCs point in the plot shows the number of medals won. The plot shows a positive correlation between GDP and athletes per capita, indicating that whealthy countries send more athletes (relative to their population)."----
+## Plot 2 ----
 
-format(
-  cor.test(gap_med_ath_2016$ath_frac, gap_med_ath_2016$GDPpc, method = "spearman"), 
-  scientific = FALSE)
+cor.test(gap_med_ath_2016$ath_frac, gap_med_ath_2016$GDPpc, method = "spearman")
 
 
 gap_med_ath %>%
@@ -270,6 +218,6 @@ gap_med_ath %>%
     clip = F, align_to = "full"
   )
 
-ggsave("MoreGDPMoreAthletes.png", dpi = 96, height = 10, width = 8)
+ggsave("2021_week_31/MoreGDPMoreAthletes.png", dpi = 96, height = 10, width = 8)
 
 
