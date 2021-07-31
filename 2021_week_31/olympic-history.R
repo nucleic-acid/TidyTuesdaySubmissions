@@ -11,104 +11,118 @@ source("resources/jolly_theme.R")
 
 
 # ---- Read the olympic data
-  athlete_events <- read_csv("2021_week_31/data/athlete_events.csv",
-                 col_types = cols(
-                   ID = col_character(),
-                   Name = col_character(),
-                   Sex = col_factor(levels = c("M","F")),
-                   Age =  col_integer(),
-                   Height = col_double(),
-                   Weight = col_double(),
-                   Team = col_character(),
-                   NOC = col_character(),
-                   Games = col_character(),
-                   Year = col_integer(),
-                   Season = col_factor(levels = c("Summer","Winter")),
-                   City = col_character(),
-                   Sport = col_character(),
-                   Event = col_character(),
-                   Medal = col_factor(levels = c("Gold","Silver","Bronze"))
-                 )
+athlete_events <- read_csv("2021_week_31/data/athlete_events.csv",
+  col_types = cols(
+    ID = col_character(),
+    Name = col_character(),
+    Sex = col_factor(levels = c("M", "F")),
+    Age = col_integer(),
+    Height = col_double(),
+    Weight = col_double(),
+    Team = col_character(),
+    NOC = col_character(),
+    Games = col_character(),
+    Year = col_integer(),
+    Season = col_factor(levels = c("Summer", "Winter")),
+    City = col_character(),
+    Sport = col_character(),
+    Event = col_character(),
+    Medal = col_factor(levels = c("Gold", "Silver", "Bronze"))
+  )
 )
 
 # read in the NOC regions data
 noc_regions <- read_csv("2021_week_31/data/noc_regions.csv")
 
 # enrich the NOC data with the corresponding continent
-noc_regions$continent <- countrycode(sourcevar = noc_regions$region,
-                                     origin = "country.name",
-                                    destination = "continent")
-   
-# manually correct the last missing continent data   
-noc_regions <- noc_regions %>% 
-  mutate(continent = ifelse(NOC %in% c("FSM", "TUV"), "Oceania", continent),
-         continent = ifelse(NOC == "BOL", "Americas", continent),
-         continent = ifelse(NOC == "KOS", "Europe", continent),
-         continent = ifelse(is.na(continent), "Other", continent),
-         # in the athletes_events data the NOC code for Singapore is SGP, not SIN:
-         NOC = ifelse(NOC == "SIN", "SGP", NOC) 
-         )
+noc_regions$continent <- countrycode(
+  sourcevar = noc_regions$region,
+  origin = "country.name",
+  destination = "continent"
+)
+
+# manually correct the last missing continent data
+noc_regions <- noc_regions %>%
+  mutate(
+    continent = ifelse(NOC %in% c("FSM", "TUV"), "Oceania", continent),
+    continent = ifelse(NOC == "BOL", "Americas", continent),
+    continent = ifelse(NOC == "KOS", "Europe", continent),
+    continent = ifelse(is.na(continent), "Other", continent),
+    # in the athletes_events data the NOC code for Singapore is SGP, not SIN:
+    NOC = ifelse(NOC == "SIN", "SGP", NOC)
+  )
 
 
 ## ---- Read the Gapminder data
 library("readxl")
-gapminder <- read_excel("2021_week_31/data/income_per_person_gdppercapita_ppp_inflation_adjusted.xlsx", 
-                        sheet = "income_per_person_gdppercapita_")
+gapminder <- read_excel("2021_week_31/data/income_per_person_gdppercapita_ppp_inflation_adjusted.xlsx",
+  sheet = "income_per_person_gdppercapita_"
+)
 
 # add the IOC country codes
-gapminder$IOC <- countrycode(sourcevar = gapminder$country,
-                                     origin = "country.name",
-                                    destination = "ioc")
+gapminder$IOC <- countrycode(
+  sourcevar = gapminder$country,
+  origin = "country.name",
+  destination = "ioc"
+)
 # derive continent by country code
-gapminder$Continent <- countrycode(sourcevar = gapminder$country,
-                                     origin = "country.name",
-                                    destination = "continent")
+gapminder$Continent <- countrycode(
+  sourcevar = gapminder$country,
+  origin = "country.name",
+  destination = "continent"
+)
 # read the population data
 pop <- read_csv("2021_week_31/data/gapminder_population_total.csv",
-                col_names = TRUE)
+  col_names = TRUE
+)
 
 
 # reduce data: filter for years with Olympic Games
-OG_years <- athlete_events %>% 
-  distinct(Year) %>% 
+OG_years <- athlete_events %>%
+  distinct(Year) %>%
   pull()
 
-gapminder_long <- gapminder %>% 
-  pivot_longer(-c(country, IOC, Continent), 
-               names_to = "Year", 
-               values_to = "GDPpc", 
-               names_transform = list(Year = as.integer)) %>% 
+gapminder_long <- gapminder %>%
+  pivot_longer(-c(country, IOC, Continent),
+    names_to = "Year",
+    values_to = "GDPpc",
+    names_transform = list(Year = as.integer)
+  ) %>%
   filter(Year %in% OG_years)
 
-pop_long <- pop %>% 
-  pivot_longer(-country, 
-               names_to = "Year", 
-               values_to = "population",
-               names_transform = list(Year = as.integer)) %>% 
+pop_long <- pop %>%
+  pivot_longer(-country,
+    names_to = "Year",
+    values_to = "population",
+    names_transform = list(Year = as.integer)
+  ) %>%
   filter(Year %in% OG_years)
 
 
-## ---- Combine the datasets 
-athlete_counts <- athlete_events %>% 
+## ---- Combine the datasets
+athlete_counts <- athlete_events %>%
   distinct(NOC, Year, ID, .keep_all = TRUE) %>%
-  group_by(NOC, Year) %>% 
+  group_by(NOC, Year) %>%
   summarise(ath_count = n())
 
-gap_medal_counts <- athlete_events %>% 
-  filter(!is.na(Medal)) %>% 
-  group_by(NOC, Year) %>% 
+gap_medal_counts <- athlete_events %>%
+  filter(!is.na(Medal)) %>%
+  group_by(NOC, Year) %>%
   summarise(med_count = n())
 
-gap_med_ath <- gapminder_long %>% 
+gap_med_ath <- gapminder_long %>%
   inner_join(athlete_counts,
-             by = c("IOC" = "NOC", "Year" = "Year"),
-             suffix = c("_gap", "_ath")) %>% 
+    by = c("IOC" = "NOC", "Year" = "Year"),
+    suffix = c("_gap", "_ath")
+  ) %>%
   inner_join(gap_medal_counts,
-             by = c("IOC" = "NOC", "Year" = "Year"),
-             suffix = c("_gap", "_ath")) %>% 
+    by = c("IOC" = "NOC", "Year" = "Year"),
+    suffix = c("_gap", "_ath")
+  ) %>%
   inner_join(pop_long,
-             by = c("Year", "country")) %>% 
-  mutate(ath_frac = ath_count / population) %>% 
+    by = c("Year", "country")
+  ) %>%
+  mutate(ath_frac = ath_count / population) %>%
   rename(Medals = med_count)
 
 
@@ -219,5 +233,3 @@ gap_med_ath %>%
   )
 
 ggsave("2021_week_31/MoreGDPMoreAthletes.png", dpi = 96, height = 10, width = 8)
-
-
