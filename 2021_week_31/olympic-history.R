@@ -150,7 +150,8 @@ gap_med_ath_2016 %>%
     size = 3.5,
     max.time = 3,
     max.iter = 1000000,
-    max.overlaps = 25
+    max.overlaps = 25,
+    key_glyph = "blank"
   ) +
   annotate(
     geom = "text",
@@ -199,7 +200,8 @@ gap_med_ath %>%
     size = 3.5,
     max.time = 3,
     max.iter = 1000000,
-    max.overlaps = 25
+    max.overlaps = 25,
+    key_glyph = "blank"
   ) +
   annotate(
     geom = "text",
