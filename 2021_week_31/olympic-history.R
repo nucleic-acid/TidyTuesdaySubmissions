@@ -216,7 +216,7 @@ gap_med_ath %>%
   scale_size(range = c(1, 18), name = "Medal count") +
   coord_trans(x = "log10", y = "log10") +
   labs(
-    title = "Whealty countries send more athletes",
+    title = "Wealty countries send more athletes",
     subtitle = "Countries with a higher GDP p.c. sent more athletes 'p. c.' to the\n2016 Games. The size of the bubbles represents the number of\nmedals, those atheletes won this year.",
     x = "GDP p. c. ($, fixed 2011 prices)",
     y = "'Athletes p. c.'\n(athletes divided by the countries' popualations",
