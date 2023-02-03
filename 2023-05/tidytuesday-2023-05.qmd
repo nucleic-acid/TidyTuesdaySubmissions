@@ -127,7 +127,7 @@ ggplot(cats_with_speed) +
     subtitle = subtitle,
     x = "age [years]",
     y = "median moving speed [m/s]\n",
-    caption = "DataViz by Christian Gebahrd <span style='font-family: Font Awesome 6 Brands; color: grey90'>&#xf4f6;</span> @basepair@<span style='color: grey5;font-size:1px'>'</span>vis.social<br>for #TidyTuesday week 5 (2023)<br>Data by Kays et. al. [doi:10.1111/acv.12563] via Movebank Data Repository"
+    caption = "DataViz by Christian Gebhard <span style='font-family: Font Awesome 6 Brands; color: grey90'>&#xf4f6;</span> @basepair@<span style='color: grey5;font-size:1px'>'</span>vis.social<br>for #TidyTuesday week 5 (2023)<br>Data by Kays et. al. [doi:10.1111/acv.12563] via Movebank Data Repository"
     ) +
   theme_void()+
   theme(
