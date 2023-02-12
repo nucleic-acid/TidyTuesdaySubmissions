@@ -1,0 +1,237 @@
+---
+title: "TidyTuesday week 6 (2023)"
+author: "Christian Gebahrd"
+format: html
+---
+
+## read data and load libraries
+```{r}
+library("tidyverse")
+library("systemfonts")
+library("ggtext")
+library("patchwork")
+library(rcartocolor)
+
+```
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load(2023, week = 6)
+
+big_tech_stock_prices <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-02-07/big_tech_stock_prices.csv')
+big_tech_companies <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-02-07/big_tech_companies.csv')
+
+dfStockData <- big_tech_stock_prices |> 
+  left_join(big_tech_companies, by = "stock_symbol")
+
+dfSummary(dfStockData)
+
+```
+
+## data preparation
+
+```{r}
+dfStockData <- dfStockData |> 
+  mutate(
+    openCloseMean = (open + close) / 2,
+    openCloseAbsoluteDiff = abs(open-close),
+    openCloseDiffPct = 100 * openCloseAbsoluteDiff / open,
+    dailySpreadPct = (high  - low) / openCloseMean * 100,
+    dailySpreadIndex = sqrt(((high  - low) - openCloseAbsoluteDiff) / openCloseMean * 100),
+    dailySpreadLog = log10(dailySpreadPct),
+    dailyRelativeVariance = (close - open) / (high - low)  ,
+    after2020 = year(date) >= 2020
+  )
+
+dfMedianValues <- dfStockData |> 
+  group_by(after2020, stock_symbol) |> 
+  summarise(
+    medianSpread = median(dailySpreadIndex, na.rm = TRUE),
+    medianVolume = median(volume, na.rm = T)
+  ) |> 
+  ungroup() |> 
+  arrange(stock_symbol) 
+  
+plot(log(dfStockData$volume), log(dfStockData$openCloseDiffPct))
+```
+
+
+
+## build main plot
+```{r}
+
+pal <- rcartocolor::carto_pal(name = "Safe", n = 4)
+
+title <- "
+TSLA has higher Daily Spread Index
+"
+
+subtitle <- "
+The average daily variation of the <span style='color: #CC6677;'><b>TSLA</b></span> stock value appears to be<br>
+larger than e.g. <span style='color: #88CCEE;'><b>AAPL's</b></span> or <span style='color: #DDCC77;'><b>IBM's</b></span>. Plotted against the traded volume<br>
+of stocks there are three distinct clusters emerging.
+"
+
+mplot <- dfStockData |>
+  filter(
+    stock_symbol %in% c("AAPL", "IBM", "TSLA"),
+    date >= "2010-06-30"
+    ) |>
+ggplot() +
+  aes(
+    x = volume,
+    y = dailySpreadIndex,
+    color = stock_symbol,
+    fill = after_scale(color)
+    ) +
+  scale_color_manual(values = pal[c(1, 3, 2)]) +
+  geom_point(alpha = .25, shape = 21, size = 1) +
+  labs(
+    x = "Volume of traded stocks\n(log10 scaled)",
+    y = "Daily Spread Index",
+    title = title,
+    subtitle = subtitle,
+    caption = "DataViz by Christian Gebhard <span style='font-family: Font Awesome 6 Brands; color: black'>&#xf4f6;</span> @basepair@<span style='color: grey5;font-size:1px'>'</span>vis.social<br>for #TidyTuesday week 6 (2023) | CC BY-NC 4.0<br>I'm not a financial expert and don't give any investment advice."
+  ) +
+  coord_trans(x = "log10") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    text = element_text(family = "Asap Condensed", size = 16),
+    plot.title.position = "plot",
+    plot.title = element_markdown(size = rel(4), face = "bold"),
+    plot.subtitle = element_markdown(size = rel(2)),
+    plot.caption = element_markdown(hjust = 0, size = rel(0.9)),
+    axis.title = element_text(size = rel(1.2), face = "bold"),
+    axis.text = element_text(size = rel(1)),
+    plot.margin = margin(5, 400, 5, 5, unit = "pt")
+  ) 
+
+mplot
+```
+
+
+## build legend plot
+
+```{r}
+roll <- function(x, n) {
+  x[(seq_along(x) - (n + 1)) %% length(x) + 1]
+}
+
+dfMockData <- tibble(
+  xbegin = 1:10,
+  ybegin = c(95, 90, 80, 115, 120, 125, 50, 76, 87, 110),
+  xend = roll(xbegin, -1),
+  yend = roll(ybegin, -1)
+) |>
+  head(9)
+
+minMaxColor <- pal[4]
+openCloseColor <- pal[4]
+
+dfAnnotate <- data.frame(
+  xbegin = c(10.5, 11, 11.5),
+  xend = c(10.5, 11, 11.5),
+  ybegin = c(102.5, 110, 125),
+  yend = c(0, 95, 50),
+  color = c("black", openCloseColor, minMaxColor)
+)
+
+dfOpenCloseRect <- data.frame(
+  xmin = 1, xmax = 10,
+  ymin = 95, ymax = 110
+)
+dfHighLowRect <- data.frame(
+  xmin = 1, xmax = 10,
+  ymin = 50, ymax = 125
+)
+
+legend_title <- "What's the daily spread index?"
+legend_sub <- "
+This made-up index tries to boil down the daily variation of 
+a stock's value to a single digit and make it comparable to 
+other stocks. It calculates the deviance of the highest and 
+lowest daily values outside of the corridor given by the open 
+and close values in relation to the mean stock value.
+"
+
+library(xkcd)
+lplot <- ggplot(dfMockData) +
+  aes(
+    x = x,
+    y = y
+  ) +
+  xkcdline(
+    aes(x = xbegin, xend = xend, y = ybegin, yend = yend),
+    data = dfMockData,
+    typexkcdline = "segment", xjitteramount = 0.2
+  ) +
+  geom_point(x = 6, y = 125, color = minMaxColor, size = 3) +
+  geom_point(x = 7, y = 50, color = minMaxColor, size = 3) +
+  geom_point(x = 1, y = 95, color = openCloseColor, size = 3) +
+  geom_point(x = 10, y = 110, color = openCloseColor, size = 3) +
+  xkcdrect(
+    inherit.aes = FALSE,
+    aes(
+      xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax
+    ),
+    data = dfOpenCloseRect,
+    fill = openCloseColor,
+    alpha = 0.4
+  ) +
+  xkcdrect(
+    inherit.aes = FALSE,
+    aes(
+      xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax
+    ),
+    data = dfHighLowRect,
+    fill = minMaxColor,
+    alpha = 0.2
+  ) +
+  annotate(
+    geom = "text", x = 6.1, y = 128, label = "high", hjust = 0, family = "xkcd"
+  ) +
+  annotate(
+    geom = "text", x = 7.1, y = 46, label = "low", hjust = 0, family = "xkcd"
+  ) +
+  annotate(
+    geom = "text", x = 1.1, y = 98, label = "open", hjust = 0, family = "xkcd"
+  ) +
+  annotate(
+    geom = "text", x = 9.9, y = 113, label = "close", hjust = 1, family = "xkcd"
+  ) +
+  annotate("text",
+    x = 2, y = 20, parse = TRUE,
+    label = "sqrt((frac(abs(open - close), high - low)) / (frac(open + close, 2)))", family = "xkcd",
+    hjust = 0, size = rel(5)
+  ) +
+  labs(
+    x = "Time of Day",
+    y = "Stock value",
+    title = legend_title,
+    caption =  legend_sub
+  ) +
+  scale_color_identity() +
+  xkcdaxis(xrange = c(1, 10), yrange = c(0, 130)) +
+  theme(
+    text = element_text(family = "xkcd", size = 12),
+    plot.title = element_text(size = rel(1.5), hjust = 1),
+    plot.caption = element_text(size = rel(1), hjust = 1, family = "xkcd"),
+    axis.text = element_blank(),
+    # plot.title.position = "panel",
+    axis.ticks = element_blank()
+  )
+
+lplot
+```
+
+## compose plot
+
+```{r}
+
+patched <- mplot + inset_element(lplot, left = 0.7, right = 1, top = 0.6, bottom = 0.1, align_to = "full")
+
+ggsave(here::here("2023-06", "tt-2023-06.png"), plot = patched, width = 16, height = 9)
+```
+
+
+
