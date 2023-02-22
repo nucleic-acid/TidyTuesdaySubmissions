@@ -16,157 +16,106 @@ library(summarytools)
 library(umap)
 library(ggiraph)
 library(tidytext)
-library(scico)
 ```
 
 ```{r}
-dfBobRoss <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-02-21/bob_ross.csv')
-
-topics <- dfBobRoss %>% 
-  unnest_tokens(word, painting_title) %>% 
-  anti_join(stop_words,
-            by = "word") |> 
-  filter(word != "oval") |> 
-  left_join(get_sentiments("nrc"), by = "word") |> 
-  group_by(painting_index, sentiment) %>%
-  summarise(n = dplyr::n(), .groups = "drop") %>%
-  drop_na(sentiment) |> 
-  pivot_wider(id_cols = painting_index, names_from = sentiment, values_from = n, values_fill = 0L)
-  
-
-dfBobRoss <- dfBobRoss |> 
-  mutate(ID = row_number()) |> 
-  left_join(topics, by = "painting_index") |> 
-  mutate_at(vars(colnames(topics)), ~replace_na(., 0L)) |> 
+dfBobRoss <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-02-21/bob_ross.csv") |>
   mutate(
-    overall_positive = anticipation + positive + trust + joy + surprise,
-    overall_negative = fear + negative + sadness + anger + disgust,
-    mood = overall_positive - overall_negative
+    ID = row_number(),
+    img_iframe = paste0(painting_title, "<br><img src='", img_src, "'>")
   )
 
-  
-set.seed(123)
-```
 
+dfTitleSentiment <- dfBobRoss %>%
+  unnest_tokens(word, painting_title) %>%
+  anti_join(stop_words,
+    by = "word"
+  ) |>
+  left_join(get_sentiments("bing"), by = "word") |>
+  mutate(sentiment_num = case_when(
+    sentiment == "positive" ~ 1L,
+    sentiment == "negative" ~ -1L,
+    TRUE ~ 0L
+  )) |>
+  group_by(painting_index) %>%
+  summarise(sentiment_sum = sum(sentiment_num)) |>
+  ungroup()
 
-```{r}
-# clustering without sentiment, only based on color use
-dfBobRossColors <- dfBobRoss |> 
+dfBobRossSentiment <- dfBobRoss |>
+  left_join(dfTitleSentiment, by = "painting_index")
+
+dfBobRossColors <- dfBobRoss |>
   select(ID, where(is.logical))
+
+
+set.seed(123)
 
 umap_fit <- dfBobRossColors %>%
   column_to_rownames("ID") %>%
-  umap()
+  umap(n_neighbors = 5, min_dist = 0.99)
 
-dfBobRossUMAP <- umap_fit$layout |> 
-  as_tibble() |> 
-  rename(UMAP1 = "V1", UMAP2 = "V2") |> 
+dfBobRossUMAP <- umap_fit$layout |>
+  as_tibble() |>
+  rename(UMAP1 = "V1", UMAP2 = "V2") |>
   mutate(
     ID = row_number()
-  ) |> 
-  inner_join(dfBobRoss, by = "ID") |> 
-  mutate(
-    img_iframe = paste0(painting_title, "<br><img src='", img_src, "'>")
-  )
+  ) |>
+  inner_join(dfBobRossSentiment, by = "ID")
 
 
-
-umapPlot <- ggplot(dfBobRossUMAP) +
-  aes(
-    x = UMAP1,
-    y = UMAP2,
-    color = mood,
-    fill = after_scale(color)
-  ) +
-  geom_point_interactive(
-    aes(tooltip = img_iframe, data_id = ID),
-    shape = 21,
-    alpha = 0.5,
-    size = 5
-  ) +
-  scale_color_scico(palette = "vikO", midpoint = 0) +
-  theme_bw()
-
-
-
-girafe(ggobj = umapPlot)
-```
-
-```{r}
-save_webp <- function(plot = last_plot(), output_name = "temp.webp", ...) {
-  filepath <- tempfile()
-  ggsave(filepath, plot = plot, device = "svg", ...)
-  magick::image_write(
-    magick::image_read_svg(filepath),
-    path = file.path(output_name), 
-    format = "webp"
-  )
-}
-
-save_webp(width = 16, height = 16)
-```
-
-
-```{r}
-
-# clustering with sentiment analysis
-dfBobRossColorsSentiment <- dfBobRoss |> 
-  select(ID, where(is.logical), colnames(topics), -painting_index)
-
-umap_fit <- dfBobRossColorsSentiment %>%
-  column_to_rownames("ID") %>%
-  umap()
-
-dfBobRossUMAP <- umap_fit$layout |> 
-  as_tibble() |> 
-  rename(UMAP1 = "V1", UMAP2 = "V2") |> 
-  mutate(
-    ID = row_number()
-  ) |> 
-  inner_join(dfBobRoss, by = "ID") |> 
-  mutate(
-    img_iframe = paste0(painting_title, "<br><img src='", img_src, "'>")
-  )
 
 title <- "
 Happy Little Dimensions
 "
 
 subtitle <- "
-Applying dimension reduction to Bob Ross paintings produces 5 distinct clusters. The<br>
-dimensions include: use of a certain color and sentiments extracted from the painting titles.<br>
-Many titles don't express any particular sentiment. However, there is one cluster with mostly <span style='color: #8A331F;'><b>positive sentiment</b></span>. The <span style='color: #345B8C;'><b>negative sentiments</b></span>) seem to be distributed across the other 4 clusters.
+Applying dimension reduction to the colors used in Bob Ross paintings produces distinct clusters.<br>
+Each point represents a painting and is colored according to a sentiment analysis on the painting's<br>
+title. Most of the titles confer <span style='color: #999999;'><b>no specific sentiment</b></span> (n = 285), but there are more <span style='color: #8A331F;'><b>positive</b></span> titles (88)<br>than <span style='color: #345B8C;'><b>negative</b></span> ones (30). Overall, the use of colors does not seem to correlate with the sentiment<br>
+of the title.
 "
+
+caption <- "
+DataViz for <b>#TidyTuesday week 8</b> (2023)<br>
+by Christian Gebhard <span style='font-family: Font Awesome 6 Brands; color: #676767'>&#xf4f6;</span> @basepair@<span style='color: grey5;font-size:1px'>'</span>vis.social | CC BY-NC 4.0<br>
+Data by @jwilber via @frankiethull's {BobRossColors} package
+"
+
 
 umapPlot <- ggplot(dfBobRossUMAP) +
   aes(
     x = UMAP1,
     y = UMAP2,
-    color = mood,
-    fill = after_scale(color)
+    fill = as.factor(sentiment_sum),
+    color = after_scale(prismatic::clr_darken(fill, .5))
   ) +
   geom_point_interactive(
     aes(tooltip = img_iframe, data_id = ID),
     shape = 21,
-    alpha = 0.4,
-    size = 7
+    alpha = 0.6,
+    size = 6
   ) +
-  scale_color_scico(palette = "vikO", midpoint = 0) +
+  scale_fill_brewer(palette = "RdBu", direction = -1) +
   labs(
     title = title,
-    subtitle = subtitle
+    subtitle = subtitle,
+    caption = caption
   ) +
   theme_minimal() +
   theme(
     plot.title.position = "plot",
     plot.background = element_rect(fill = "white", color = "white"),
     text = element_text(family = "Asap Condensed"),
-    plot.title = element_text(family = "Molle", size = 56),
-    plot.subtitle = element_markdown(family = "Asap Condensed", size = 30),
-    legend.position = "none"
+    plot.title = element_text(family = "Molle", size = 56, lineheight = 0.3),
+    plot.subtitle = element_markdown(family = "Asap Condensed", size = 30, lineheight = 1.2),
+    plot.caption = element_markdown(family = "Asap Condensed", size = 18, hjust = 0.5, lineheight = 1.1, color = "#676767"),
+    axis.title = element_text(family = "Asap Condensed", size = 12),
+    axis.text = element_text(family = "Asap Condensed", size = 12),
+    legend.position = "none",
+    plot.margin = margin(1, 1, 1, 1, unit = "cm")
   )
+
 umapPlot
-girafe(ggobj = umapPlot)
 
 ggsave(here::here("2023-w08", "umap01.png"), plot = umapPlot, width = 16, height = 16)
 magick::image_write(
@@ -175,93 +124,3 @@ magick::image_write(
   format = "webp"
 )
 ```
-
-```{r}
-# clustering with only sentiment analysis
-
-dfTitleSentiment <- dfBobRoss %>% 
-  unnest_tokens(word, painting_title) %>% 
-  anti_join(stop_words,
-            by = "word") |> 
-  filter(word != "oval") |> 
-  left_join(get_sentiments("bing"), by = "word") |> 
-  mutate(sentiment_num = case_when(
-    sentiment == "positive" ~ 1L,
-    sentiment == "negative" ~ -1L,
-    TRUE ~ 0L
-  )) |> 
-  group_by(painting_index) %>%
-  summarise(sentiment_sum = sum(sentiment_num)) |> 
-  ungroup()
-
-dfBobRossSentiment <- dfBobRoss |> 
-  left_join(dfTitleSentiment, by = "painting_index") |> 
-  mutate(ID = row_number())
-
-dfBobRossSentimentColors <- dfBobRossSentiment |> 
-  select(ID, where(is.logical))
-
-umap_fit <- dfBobRossSentimentColors %>%
-  column_to_rownames("ID") %>%
-  umap()
-
-dfBobRossUMAP <- umap_fit$layout |> 
-  as_tibble() |> 
-  rename(UMAP1 = "V1", UMAP2 = "V2") |> 
-  mutate(
-    ID = row_number()
-  ) |> 
-  inner_join(dfBobRossSentiment, by = "ID") |> 
-  mutate(
-    img_iframe = paste0(painting_title, "<br><img src='", img_src, "'>")
-  )
-
-title <- "
-Happy Little Dimensions
-"
-
-subtitle <- "
-Applying dimension reduction to Bob Ross paintings produces 5 distinct clusters. The<br>
-dimensions include: use of a certain color and sentiments extracted from the painting titles.<br>
-Many titles don't express any particular sentiment. However, there is one cluster with mostly <span style='color: #8A331F;'><b>positive sentiment</b></span>. The <span style='color: #345B8C;'><b>negative sentiments</b></span>) seem to be distributed across the other 4 clusters.
-"
-
-umapPlot <- ggplot(dfBobRossUMAP) +
-  aes(
-    x = UMAP1,
-    y = UMAP2,
-    color = sentiment_sum,
-    fill = after_scale(color)
-  ) +
-  geom_point_interactive(
-    aes(tooltip = img_iframe, data_id = ID),
-    shape = 21,
-    alpha = 0.4,
-    size = 7
-  ) +
-  scale_color_scico(palette = "vikO", midpoint = 0) +
-  # labs(
-  #   title = title,
-  #   subtitle = subtitle
-  # ) +
-  theme_minimal() +
-  theme(
-    plot.title.position = "plot",
-    plot.background = element_rect(fill = "white", color = "white"),
-    text = element_text(family = "Asap Condensed"),
-    plot.title = element_text(family = "Molle", size = 56),
-    plot.subtitle = element_markdown(family = "Asap Condensed", size = 30),
-    # legend.position = "none"
-  )
-umapPlot
-```
-
-
-```{r}
-
-library(tsne)
-dfTSNE <- tsne(dfBobRossColors) |> as_tibble()
-
-plot(dfTSNE$V1, dfTSNE$V2)
-```
-
