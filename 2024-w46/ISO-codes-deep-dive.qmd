@@ -1,0 +1,252 @@
+---
+title: "ISO-codes deep dive"
+subtitle: "A combined 'submission' to #30DayMapChallenge and #TidyTuesday for this week"
+author: "Christian Gebhard"
+date: 2024-11-16
+format: html
+---
+
+## Required Packages
+
+```{r}
+#| message: false
+library("countrycode")
+library("tidyverse")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("marquee")
+library("biscale")
+library("cowplot")
+```
+
+
+## Prepare and Clean Country Name Data
+Native country names were obtained from the wonderful [OpenStreetMap](https://openstreetmap.org) wiki.
+
+The python package "pandas" offers a very convenient function to scrape tables from the web.
+Since it only uses 3 lines of code I used this, instead of a more tedious R scraping.
+
+```
+import pandas as pd
+ccodes = pd.read_html('https://wiki.openstreetmap.org/wiki/Nominatim/Country_Codes', na_values=[""], keep_default_na=False)
+ccodes[0].to_csv('native_names.csv')  
+
+```
+
+The params regarding na_values and keep_default_na above were needed, as the ISO code for Namibia is "NA" and that led to serious problems later on. With these options the "NA" ISO code is correctly kept as string.
+
+```{r}
+#| message: false
+# load country data with ISO codes and names in different formats
+countriesRaw <- countrycode::codelist
+
+# read the native country names, that were obtained from OpenStreetMap
+nativeNames <- read_csv("native_names.csv", na = character()) |> 
+  janitor::clean_names() |> 
+  rename(
+    iso2c = iso_3166_1_country_code,
+    country.name.local = country_name_local
+    ) |> 
+  mutate(
+    country.name.local = str_remove(country.name.local, ",.*") # keep first local name only to simplify things
+  )
+
+# Cleanup of the country names
+countries <- countriesRaw |>
+  drop_na(iso2c) |> # removes sub-nation geographic regions (e.g. 'Bundesländer'), which do not have ISO codes
+  left_join(nativeNames, by = "iso2c") |> 
+  mutate( # remove 'stopwords' and special characters from local and english names:
+    english.cleaned = str_replace_all(country.name.en, "(\\s&\\s)|(\\si\\s)|(\\sof\\s?)|(\\sand\\s)|(\\se\\s)|(St\\.)|\\(|\\)|\\-", " "), 
+    local.cleaned = str_replace_all(country.name.local, "(\\s&\\s)|(\\si\\s)|(\\sof\\s)|(\\sand\\s)|(\\se\\s)|(St\\.)|\\(|\\)|\\-", " ")
+  ) |> 
+  select(iso2c, iso3c, english.cleaned, local.cleaned)
+```
+
+## Derive Acronyms from Names
+```{r}
+# Function to derive acronym from cleaned names
+create_acronym <- function(countryName) {
+  countryName %>%
+    str_to_upper() %>%
+    str_split_1("\\s+") |> 
+    str_trunc(width = 1, ellipsis = "") %>%
+    str_c(collapse = "")
+}
+
+# Apply the function to create new columns with the name acronyms
+countriesAcronyms <- countries %>%
+  mutate(
+    english.acronym = map_chr(english.cleaned, create_acronym),
+    local.acronym = map_chr(local.cleaned, create_acronym)
+    )
+
+# Display the result
+# print(countriesAcronyms)
+
+```
+
+## Check if ISO codes are equal to or a permutation of an acronym
+
+```{r}
+# Custom function to check if two strings are permutations
+is_permutation <- function(str1, str2) {
+  # Convert strings to lowercase and remove any whitespace
+  str1 <- str_to_lower(str_remove_all(str1, "\\s"))
+  str2 <- str_to_lower(str_remove_all(str2, "\\s"))
+
+  # Check if strings are NA
+  if (is.na(str1) | is.na(str2)) {
+    return(FALSE)
+  }
+  
+  # Check if strings are of equal length
+  if (nchar(str1) != nchar(str2)) {
+    return(FALSE)
+  }
+  
+  # Check if the sorted characters of both strings are identical
+  return(all(sort(str_split(str1, "")[[1]]) == sort(str_split(str2, "")[[1]])))
+}
+
+```
+
+
+In the following part, the data is brought to a long form, to allow pairwise comparison of acronyms and ISO codes.
+After the comparison is done, if any of the four combinations (iso2c/iso3c compared to native/English acronyms respectively) returned true, then the whole country was set to "TRUE" for acronym match.
+```{r}
+countriesAcronymsCompared <- countriesAcronyms |> 
+  pivot_longer(cols = starts_with("iso"), names_to = "iso_len", values_to = "code") |> 
+  pivot_longer(cols = ends_with("acronym"), names_to = "language", values_to = "acronym") |> 
+  mutate(
+    is_perm = map2_lgl(code, acronym, is_permutation)
+  ) |> 
+  group_by(english.cleaned) |> 
+  mutate(
+    permutation_match = any(is_perm)
+  ) |>
+  ungroup() |> 
+  filter(iso_len == "iso3c") |> 
+  distinct(code, .keep_all = TRUE) |> 
+  select(code, permutation_match) |> 
+  rename(iso3c = code)
+
+```
+
+
+## Check if ISO codes match the inital letters of the name
+
+```{r}
+# custom function to compare ISO code to beginning letters of a country's name
+start_match <- name <- function(code, name) {
+  # Convert strings to lowercase and remove any whitespace
+  code <- str_to_lower(str_remove_all(code, "\\s"))
+  name <- str_to_lower(str_remove_all(name, "\\s"))
+
+  # Check if strings are NA
+  if (is.na(code) | is.na(name)) {
+    return(FALSE)
+  }
+  
+  len <- nchar(code)
+  
+  return(code == substr(name, 1, len))
+  
+}
+```
+
+As with the previous comparison, the data is first brought to a long form for pairwise comparison and if any of the pairs returned TRUE, the country was set to TRUE for "first letter match".
+```{r}
+countriesInitialCompared <- countries |> 
+  mutate(idcolumn = paste0(iso2c, iso3c)) |> 
+  pivot_longer(cols = starts_with("iso"), names_to = "iso_len", values_to = "code") |> 
+  pivot_longer(cols = ends_with("cleaned"), names_to = "language", values_to = "name") |> 
+  mutate(
+    initial_match= map2_lgl(code, name, start_match)
+  ) |> 
+  group_by(idcolumn) |> 
+  mutate(
+    initial_match_any = any(initial_match)
+  ) |>
+  ungroup() |> 
+  filter(iso_len == "iso3c") |> 
+  distinct(code, .keep_all = TRUE) |> 
+  select(code, initial_match_any) |> 
+  rename(iso3c = code) 
+```
+
+## Putting the results together with map data
+
+```{r}
+
+# obtain World map data from {rnaturalearth}
+world_map <- ne_countries(scale = "small", returnclass = "sf")
+
+# integrate the acronym and first letter comparison results to the country data
+countriesFinal <- countries |> 
+  left_join(countriesAcronymsCompared, by = "iso3c") |> 
+  left_join(countriesInitialCompared, by = "iso3c") |> 
+  mutate(
+    permutation_match = as_factor(permutation_match),
+    initial_match_any = as_factor(initial_match_any)
+  )
+# get frequencies of the 4 possible cases
+countriesFinal |> 
+  count(permutation_match, initial_match_any, sort = TRUE)
+
+# integrate the completed country data to the map data for plotting
+world_map_data <- world_map |> 
+  left_join(countriesFinal, by = c("iso_a3_eh" = "iso3c"))
+```
+
+## Bivariate Plot
+
+```{r}
+#| fig-width: 10
+#| fig-height: 7
+#| fig-dpi: 300
+#| warning: false
+
+# encode bivariate coloring with the {biscale} package
+countriesBiscale <- bi_class(world_map_data, x = permutation_match, y = initial_match_any, dim = 2)
+
+# create map
+world_map <- ggplot() +
+  geom_sf(data = countriesBiscale, mapping = aes(fill = bi_class), color = "white", size = 0.1, show.legend = FALSE) +
+  bi_scale_fill(pal = "DkViolet2", dim = 2, na.value = "grey95") +
+  labs(
+    title = "How ISO codes match the country names",
+    subtitle = "Not all ISO codes seem to be derived from the {.darkred **initial letters of the name**} or the {.steelblue **countries' acronyms**}. In fact, for 140 countries neither condition is met, even if the native and English names of the countries are considered. In 84 names, the ISO code resembles the initial letters of the name, in 26 the acronym (or a permutation of it). Only in Saudi Arabia, the 3-digit code (SAU) matches the name and the 2-digit code (SA) the acronym.",
+    caption = "Visualization CC BY-SA 2.0 by christiangebhard.com\n#30DayMapChallenge 2024, Day 14 'A World Map'\nISO code data from the {countrycode} package | native country names: 'Nominatim/Country Codes' OpenStreetMap Wiki (2024-06-13),"
+  ) +
+  coord_sf(crs = "+proj=robin +lon_0=0w") + # replace the default Mercator map projection...personal taste
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    text = element_text(family = "Archivo", size = 10),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 20),
+    plot.subtitle = marquee::element_marquee(
+      hjust = 0.5,
+      width = unit(9, "in"), # needs manually fixed width
+      style = marquee::classic_style(align = "center"),
+      size = 10
+    ),
+    plot.caption = element_text(size = 8)
+  ) 
+
+legend <- bi_legend(pal = "DkViolet2",
+                    dim = 2,
+                    xlab = "Acronym match",
+                    ylab = "First letters match",
+                    size = 7)
+
+finalPlot <- ggdraw() +
+  draw_plot(world_map, 0, 0, 1, 1) +
+  draw_plot(legend, 0.1, 0.23, 0.21, 0.21)
+
+# show plot
+finalPlot
+
+# save plot
+ggsave("ISOcodes2.png", width = 10, height = 7, dpi = 600, bg = "white")
+```
+
